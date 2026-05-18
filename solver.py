@@ -1,6 +1,10 @@
 import math
 import copy
 import time
+import sys
+import itertools
+import inspect
+from collections import deque
 from userInputs import vars_start_domains, constraints, constraints_of_var, obj_func, minimize
 
 
@@ -13,65 +17,70 @@ def evaluate_sol(values):
     args = [values[v] for v in obj_func["vars"]]
     return obj_func["func"](*args)
 
-class Domains:
-    def __init__(self, domains):
-        self.domains = domains
-    def remove_val(self, var, value):
-        if value in self.domains[str(var)]:
-            self.domains[str(var)].remove(value)
-    def get_domains(self, var):
-        return self.domains[str(var)]
+def build_arc_queue():
+    queue = deque()
+    for c_key, c in constraints.items():
+        vars = c["vars"]
+        for i, v in enumerate(vars):
+            for other in vars:
+                if other != v:
+                    queue.append((v, other, c_key))
+    return queue
 
-class Node :
-    def __init__(self, domains : dict):
-        self.domains = copy.deepcopy(domains)
+def revise(domains, xi, c_key):
 
-    def first_unassigned(self):
-        for var, dom in self.domains.items():
-            if len(dom) != 1:
-                return var
-        return None
+    c = constraints[c_key]
+    c_vars = c["vars"]
+    if xi not in c_vars:
+        return False
 
-    def candidate_values(self, var):
-        return list(self.domains[var])
+    other_vars = [v for v in c_vars if v != xi]
+    revised = False
 
-    def assign(self, var, value):
-        self.domains[var] = [value]
+    for val in list(domains[xi]):
+        other_domains = [domains[v] for v in other_vars]
+        has_support = False
+        for combo in itertools.product(*other_domains):
+            assignment = {v: combo[i] for i, v in enumerate(other_vars)}
+            assignment[xi] = val
+            args = [assignment[v] for v in c_vars]
+            if c["func"](*args):
+                has_support = True
+                break
+        if not has_support:
+            domains[xi].remove(val)
+            revised = True
 
-    def is_fully_assigned(self):
-        return all(len(dom) == 1 for dom in self.domains.values())
+    return revised
 
-    def get_assigned(self):
-        return {var: dom[0] for var, dom in self.domains.items()}
+def ac3(domains, branch_var = None):
+    if branch_var not in constraints_of_var:
+        return True
+
+    queue = deque()
+    for c_key in constraints_of_var[branch_var]:
+        c = constraints[c_key]
+        for v in c["vars"]:
+            if v != branch_var:
+                queue.append((v, c_key))       # no xj, just xi and constraint
+
+    while queue:
+        xi, c_key = queue.popleft()
+        if revise(domains, xi, c_key):
+            if not domains[xi]:
+                return False
+            for c_key2 in constraints_of_var[xi]:
+                c = constraints[c_key2]
+                for xk in c["vars"]:
+                    if xk != xi:
+                        queue.append((xk, c_key2))
+    return True
+
 
 class Propagator:
     def __init__(self):
         self.best_sol = math.inf if minimize else -math.inf
         self.best_assignment = {}
-
-    def propagate(self, domains: dict, assigned_var: str):
-        if assigned_var not in constraints_of_var:
-            return True
-        for c_key in constraints_of_var[assigned_var]:
-            c = constraints[c_key]
-            needed_vars = c["vars"]
-
-            assigned_vals = {v: domains[v][0] for v in needed_vars
-                             if v in domains and len(domains[v]) == 1}
-            for v in needed_vars:
-                if v not in domains or len(domains[v]) == 1:
-                    continue
-                surviving = []
-                for val in domains[v]:
-                    trial = {**assigned_vals, v: val}
-                    if all(k in trial for k in needed_vars):
-                        args = [trial[k] for k in needed_vars]
-                        if c["func"](*args):
-                            surviving.append(val)
-                domains[v] = surviving
-                if not domains[v]:
-                    return False
-        return True
 
     def try_solution(self, assignment: dict):
         val = evaluate_sol(assignment)
@@ -92,10 +101,7 @@ class Solver:
         self.start_domains = start_domains
     def solve(self):
         self.btrack(copy.deepcopy(self.start_domains))
-        if self.propagator.best_assignment:
-            print(f"\nOptimal solution: obj={self.propagator.best_sol}"
-                  f"  vars={self.propagator.best_assignment}")
-        else:
+        if not self.propagator.best_assignment:
             print("No feasible solution found.")
         return self.propagator.best_assignment, self.propagator.best_sol
 
@@ -106,30 +112,68 @@ class Solver:
             return
 
         branch_var = next(v for v, d in domains.items() if len(d) != 1)
-
         for value in list(domains[branch_var]):
-
             saved = copy.deepcopy(domains)
             domains[branch_var] = [value]
-            feasible = self.propagator.propagate(domains, branch_var)
 
-            if feasible:
+            if ac3(domains):
                 self.btrack(domains)
 
             domains.clear()
             domains.update(saved)
 
+def display_problem(vars_start_domains, constraints, obj_func, minimize):
+    W = 50
+    div = "─" * W
+
+    direction = "min" if minimize else "max"
+    src = inspect.getsource(obj_func["func"]).strip()
+    func_str = src.split("lambda")[1].split(":")[-1].strip().rstrip(",")
+
+    print("┌" + div + "┐")
+    print("│" + f"  {direction}  {func_str}".ljust(W) + "│")
+    print("├" + div + "┤")
+    for var, bounds in vars_start_domains.items():
+        lb = bounds[0]
+        ub = bounds[1] if len(bounds) == 2 else bounds[0]
+        print("│" + f"  {var}  ∈  [{lb}, {ub}]".ljust(W) + "│")
+    print("├" + div + "┤")
+    print("│" + "  s.t.".ljust(W) + "│")
+    for c_key, c in constraints.items():
+        src = inspect.getsource(c["func"]).strip()
+        c_str = src.split("lambda")[1].split(":")[-1].strip().rstrip(",")
+        print("│" + f"  {c_key}:  {c_str}".ljust(W) + "│")
+    print("└" + div + "┘")
+
+def display_sol(sol, time_elapsed, best_val, minimize):
+    W = 50
+    div = "─" * W
+
+    direction = "min" if minimize else "max"
+
+    print("┌" + div + "┐")
+    print("│" + "  solution".ljust(W) + "│")
+    print("├" + div + "┤")
+    for var, val in sol.items():
+        print("│" + f"  {var}  =  {val}".ljust(W) + "│")
+    print("├" + div + "┤")
+    print("│" + f"  {direction} f  =  {best_val}".ljust(W) + "│")
+    print("│" + f"  time      =  {time_elapsed:.6f} s".ljust(W) + "│")
+    print("└" + div + "┘")
 
 if __name__ == "__main__":
+    display_problem(vars_start_domains, constraints, obj_func, minimize)
     start_time = time.perf_counter()
     start_domains = {}
-    for var, (lb, ub) in vars_start_domains.items():
-        domain_init(var, [lb,ub], start_domains)
+    for var, bounds in vars_start_domains.items():
+        domain_init(var, bounds, start_domains)
+    if not ac3(start_domains):
+        sys.exit("Infeasible before search even starts.")
     solver = Solver(start_domains)
     best_assignment, best_val = solver.solve()
     end_time = time.perf_counter()
     elapsed = end_time - start_time
-    print(f"Executed in {elapsed:.6f} seconds")
+    display_sol(best_assignment, elapsed, best_val, minimize)
 
 
 

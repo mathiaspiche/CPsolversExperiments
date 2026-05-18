@@ -18,7 +18,13 @@ constraints = {
     "c2": {
         "vars": ("x", "z"),
         "func": lambda x, z: x + z <= 2
+    },
+
+    "c3": {
+        "vars": ("x", "y", "z"),
+        "func": lambda x, y, z: x + y + z >= 2
     }
+
 }
 
 constraints_of_var = {
@@ -28,3 +34,5 @@ constraints_of_var = {
 }
 
 minimize = True
+
+
