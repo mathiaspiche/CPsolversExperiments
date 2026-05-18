@@ -1,7 +1,10 @@
 # CPsolversExperiments
 Experiments on heursitics for CP solvers. 
 
-Right now : Started coding greedy solver. 
+Right now : Finished coding basic solver with 
+Generalized Arc Consistency (GAC) and backtracking. 
+Uses input order for definition of first 
+branching variable.
 
-TO-DO : implement bactracking and starting heuristic,
-for example most constrained. 
+TO-DO : code different starting heuristics 
+(most constrained for example)

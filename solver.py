@@ -99,6 +99,8 @@ class Solver:
     def __init__(self, start_domains: dict):
         self.propagator = Propagator()
         self.start_domains = start_domains
+        self.nodes = 0          # ← add this
+
     def solve(self):
         self.btrack(copy.deepcopy(self.start_domains))
         if not self.propagator.best_assignment:
@@ -106,6 +108,7 @@ class Solver:
         return self.propagator.best_assignment, self.propagator.best_sol
 
     def btrack(self, domains: dict):
+        self.nodes += 1         # ← increment every time we enter a node
         if all(len(d) == 1 for d in domains.values()):
             assignment = {v: d[0] for v, d in domains.items()}
             self.propagator.try_solution(assignment)
@@ -115,10 +118,8 @@ class Solver:
         for value in list(domains[branch_var]):
             saved = copy.deepcopy(domains)
             domains[branch_var] = [value]
-
-            if ac3(domains):
+            if ac3(domains, branch_var):
                 self.btrack(domains)
-
             domains.clear()
             domains.update(saved)
 
@@ -173,8 +174,8 @@ if __name__ == "__main__":
     best_assignment, best_val = solver.solve()
     end_time = time.perf_counter()
     elapsed = end_time - start_time
+    print(f"  nodes explored: {solver.nodes}")
     display_sol(best_assignment, elapsed, best_val, minimize)
-
 
 
 
