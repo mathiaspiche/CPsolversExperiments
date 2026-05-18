@@ -4,9 +4,9 @@ obj_func = {
 }
 
 vars_start_domains = { # to be specified by user
-    "x" : [2,3],
+    "x" : [0,3],
     "y" : [1,4],
-    "z" : [1]
+    "z" : [1,1]
 }
 
 constraints = {
